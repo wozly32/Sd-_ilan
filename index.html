@@ -6,6 +6,7 @@
 <title>SDÜ İlan Otomasyonu</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 body{font-family:Arial,sans-serif;background:#f3f5f9;color:#182033;margin:0}
 .wrap{max-width:1100px;margin:24px auto;padding:0 14px}
@@ -45,6 +46,7 @@ const pdfjs = window.pdfjsLib;
 pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const $=s=>document.querySelector(s);
 let rows=[];
+let fileNameForExport="";
 
 $("#file").onchange=e=>e.target.files[0]&&process(e.target.files[0]);
 $("#drop").ondragover=e=>e.preventDefault();
@@ -55,58 +57,117 @@ function norm(s){return (s||"").replace(/\s+/g," ").trim()}
 const COLS=[0,68.79,134.79,201.87,277.37,322.61,355.61,385.64,575.86];
 const ROW_ID_OFFSET=14.06;
 
-function wordsForPage(tc){
-  return tc.items.map(it=>{
-    const t=it.transform||[1,0,0,1,0,0];
-    return {text:it.str||"",x:t[4],y:t[5],h:Math.abs(t[3]||it.height||10)};
-  }).filter(w=>norm(w.text));
-}
-function colIndex(x,width){
-  const scale=width/581.253;
-  for(let i=0;i<8;i++){
-    if(x >= COLS[i]*scale && x < COLS[i+1]*scale) return i;
-  }
-  return 7;
-}
-function extractRows(items,pageWidth){
-  const scale=pageWidth/581.253;
-  const ids=items.filter(w=>/^4\d{3}$/.test(norm(w.text))).sort((a,b)=>a.y-b.y);
-  const out=[];
-  for(let i=0;i<ids.length;i++){
-    const id=ids[i];
-    const top=id.y-ROW_ID_OFFSET*scale;
-    const bottom=(i+1<ids.length)?ids[i+1].y-ROW_ID_OFFSET*scale:10000;
-    if(bottom<=top) continue;
-    const block=items.filter(w=>w.y>=top-0.7 && w.y<bottom-0.7);
-    const cols=Array.from({length:8},()=>[]);
-    for(const w of block) cols[colIndex(w.x,pageWidth)].push(w.text);
-    const c=cols.map(a=>norm(a.join(" ")));
-    const title=/\bProfesör\b/i.test(c[4])?"Profesör":(/\bDoçent\b/i.test(c[4])?"Doçent":"");
-    if(!title) continue;
-    const row={ilan:norm(id.text),birim:c[1],bolum:c[2],abd:c[3],unvan:title,der:c[5],ad:c[6],nitelik:c[7]};
-    row.warn=!(row.ilan && row.birim && row.bolum && row.abd && row.unvan && row.der && row.ad && row.nitelik);
-    out.push(row);
-  }
-  return out;
-}
 
+const COLS_N=[0,0.283,0.310,0.393,0.472,0.551,0.602,0.624,0.643,0.941];
+const $=s=>document.querySelector(s);
+let rows=[];
+function clean(s){return (s||"").replace(/\s+/g," ").trim()}
+function isTarget(s){return /^(Profesör|Doçent)$/i.test(clean(s))}
+function isProf(s){return /^profesör$/i.test(clean(s))}
+function isDoc(s){return /^doçent$/i.test(clean(s))}
+function findDarkLines(canvas,x1,x2){
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  const w=canvas.width,h=canvas.height;
+  const a=ctx.getImageData(Math.floor(w*x1),0,Math.floor(w*(x2-x1)),h).data;
+  const ww=Math.floor(w*(x2-x1));
+  const hits=[];
+  for(let y=0;y<h;y++){
+    let n=0;
+    const off=y*ww*4;
+    for(let x=0;x<ww;x+=2){
+      const r=a[off+x*4],g=a[off+x*4+1],b=a[off+x*4+2];
+      if(r<130&&g<130&&b<130)n++;
+    }
+    if(n>ww*0.38)hits.push(y);
+  }
+  const groups=[];
+  for(const y of hits){
+    if(!groups.length||y>groups[groups.length-1][groups[groups.length-1].length-1]+2)groups.push([y]);
+    else groups[groups.length-1].push(y);
+  }
+  return groups.map(g=>Math.round(g.reduce((a,b)=>a+b,0)/g.length));
+}
+function colForX(x,w){
+  const r=x/w;
+  for(let i=0;i<9;i++) if(r>=COLS_N[i] && r<COLS_N[i+1]) return i;
+  return -1;
+}
+function classifyWords(words,rowW){
+  const cols=Array.from({length:9},()=>[]);
+  for(const w of words){
+    const c=colForX(w.bbox.x0,rowW);
+    if(c>=0)cols[c].push(w.text);
+  }
+  return cols.map(a=>clean(a.join(" ")));
+}
+async function ocrRow(worker,canvas,x1,y1,x2,y2){
+  const crop=document.createElement("canvas");
+  const scale=1;
+  crop.width=Math.max(50,x2-x1); crop.height=Math.max(30,y2-y1);
+  const c=crop.getContext("2d");
+  c.fillStyle="white"; c.fillRect(0,0,crop.width,crop.height);
+  c.drawImage(canvas,x1,y1,x2-x1,y2-y1,0,0,crop.width,crop.height);
+  const {data}=await worker.recognize(crop);
+  return classifyWords(data.words||[],crop.width);
+}
+async function renderPage(pdf,pageNo){
+  const page=await pdf.getPage(pageNo);
+  const vp=page.getViewport({scale:2.2});
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.ceil(vp.width); canvas.height=Math.ceil(vp.height);
+  await page.render({canvasContext:canvas.getContext("2d"),viewport:vp}).promise;
+  return canvas;
+}
 async function process(file){
-  rows=[]; $("#result").style.display="none"; $("#status").textContent="PDF okunuyor...";
+  rows=[]; fileNameForExport=file.name||"";$("#result").style.display="none";$("#status").textContent="PDF hazırlanıyor... (ilk kullanımda OCR motoru indiriliyor)";
+  let worker;
   try{
     const buf=await file.arrayBuffer();
     const pdf=await pdfjs.getDocument({data:buf}).promise;
+    worker=await Tesseract.createWorker("tur");
+    await worker.setParameters({
+      tessedit_pageseg_mode:"6",
+      preserve_interword_spaces:"1",
+      user_defined_dpi:"250"
+    });
+    let lastId=null;
     for(let p=1;p<=pdf.numPages;p++){
-      $("#status").textContent=`Sayfa ${p}/${pdf.numPages} okunuyor...`;
-      const page=await pdf.getPage(p);
-      const tc=await page.getTextContent();
-      rows.push(...extractRows(wordsForPage(tc),page.getViewport({scale:1}).width));
+      $("#status").textContent=`Sayfa ${p}/${pdf.numPages} görüntüleniyor...`;
+      const canvas=await renderPage(pdf,p);
+      // Table borders in SDÜ's Resmî Gazete layout occupy this normalized region.
+      const lines=findDarkLines(canvas,.28,.945);
+      // Candidate row intervals: ignore text above table and tiny intervals.
+      for(let i=0;i<lines.length-1;i++){
+        const y1=lines[i]+3,y2=lines[i+1]-3;
+        if(y2-y1<24||y2-y1>180)continue;
+        // Header rows have no 4-digit ilan and no target title; we filter after OCR.
+        $("#status").textContent=`Sayfa ${p}/${pdf.numPages} — tablo satırı okunuyor...`;
+        const c=await ocrRow(worker,canvas,Math.floor(canvas.width*.283),y1,
+                              Math.floor(canvas.width*.941),y2);
+        const [ilan,birim,bolum,abd,unvan,der,ad,nitelik]=c.slice(0,8);
+        if(!isTarget(unvan))continue;
+        let id=(ilan.match(/\b4\d{3}\b/)||[])[0]||"";
+        if(!id && lastId) id=String(Number(lastId)+1);
+        if(!id)continue;
+        // Some OCR reads the department columns slightly into adjacent cells; normalize common artifacts.
+        const row={ilan,birim,bolum,abd,unvan:isProf(unvan)?"Profesör":"Doçent",
+                   der:(der.match(/\d+/)||[""])[0],ad:(ad.match(/\d+/)||[""])[0],nitelik};
+        if(!row.birim||!row.bolum||!row.abd||!row.nitelik)row.warn=true;
+        rows.push(row);lastId=id;
+      }
     }
+    // Deduplicate and enforce numerical order. Keep only 4xxx target announcements.
     const seen=new Set();
     rows=rows.filter(r=>{if(seen.has(r.ilan))return false;seen.add(r.ilan);return true})
-             .sort((a,b)=>+a.ilan-+b.ilan);
+             .sort((a,b)=>Number(a.ilan)-Number(b.ilan));
     render();
     $("#status").innerHTML=`<span class="${rows.length?"ok":"warn"}">${rows.length} Profesör/Doçent ilanı bulundu.</span>`;
-  }catch(e){console.error(e);$("#status").textContent="PDF okunamadı: "+e.message}
+  }catch(e){
+    console.error(e);
+    $("#status").textContent="PDF okunamadı: "+e.message;
+  }finally{
+    if(worker)await worker.terminate();
+  }
 }
 function render(){
   const tb=$("#tbl tbody");tb.innerHTML="";
@@ -131,11 +192,10 @@ function render(){
   }
 }
 
-
 $("#make").onclick=async()=>{
   if(!rows.length)return alert("İlan bulunamadı.");
-  const bad=rows.some(r=>r.warn||!r.birim||!r.bolum||!r.abd||!r.nitelik);
-  if(bad&&!confirm("Bazı alanlar eksik/KONTROL. Yine de Excel oluşturulsun mu?"))return;
+  const bad=rows.some(r=>r.warn||!r.birim||!r.bolum||!r.abd||!r.unvan||!r.der||!r.ad||!r.nitelik);
+  if(bad&&!confirm("Bazı alanlar eksik/KONTROL olarak işaretlenmiş. Yine de Excel oluşturulsun mu?"))return;
   try{
     const resp=await fetch("./template.xlsx",{cache:"no-store"});
     if(!resp.ok)throw new Error("template.xlsx bulunamadı");
@@ -147,54 +207,81 @@ $("#make").onclick=async()=>{
     const doc=rows.filter(r=>r.unvan==="Doçent");
     const all=[...prof,...doc];
 
-    function putSheet(name,data,cols=8,start=3){
-      const ws=wb.getWorksheet(name);
-      if(!ws)throw new Error(name+" sayfası bulunamadı");
-      // Clear old values only; formatting/merged cells stay intact.
-      for(let r=start;r<=ws.rowCount;r++){
-        for(let c=1;c<=cols;c++){
+    // Clear old contents without touching the template's formatting, widths or borders.
+    function clearRows(ws,fromRow,toRow,toCol){
+      for(let r=fromRow;r<=toRow;r++){
+        for(let c=1;c<=toCol;c++){
           const cell=ws.getCell(r,c);
           if(!cell.isMerged) cell.value=null;
         }
       }
+    }
+    function putBase(ws,data){
+      const start=3;
+      clearRows(ws,start,Math.max(ws.rowCount,start+data.length+20),15);
       data.forEach((x,i)=>{
         const r=start+i;
-        const vals=[x.ilan,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||x.der,Number(x.ad)||x.ad,x.nitelik];
-        vals.forEach((v,c)=>ws.getCell(r,c+1).value=v);
+        const vals=[x.ilan,x.birim,x.bolum,x.abd,x.unvan,x.der,x.ad,x.nitelik];
+        vals.forEach((v,c)=>ws.getCell(r,c+1).value=v); // A:H
+        ws.getCell(r,9).value=null; // candidate name stays blank
       });
     }
-    putSheet("PROF. BAŞVURAN LİSTESİ",prof,9,3);
-    putSheet("DOÇ. BAŞVURAN LİSTESİ",doc,9,3);
-    putSheet(" ARŞİV",all,10,3);
-    // Archive publication-file count is intentionally left blank.
-    const aws=wb.getWorksheet(" ARŞİV");
-    all.forEach((_,i)=>aws.getCell(3+i,10).value=null);
 
-    // Jury sheets: keep candidate/jury fields blank, only populate the announcement data.
-    function putJury(name,data,blockSize,start){
-      const ws=wb.getWorksheet(name);
+    putBase(wb.getWorksheet("PROF. BAŞVURAN LİSTESİ"),prof);
+    putBase(wb.getWorksheet("DOÇ. BAŞVURAN LİSTESİ"),doc);
+    putBase(wb.getWorksheet(" ARŞİV"),all);
+
+    // Jury sheets: keep candidate and jury identity/contact fields empty.
+    // The template uses 10-row blocks for Professors and 8-row blocks for Doçents.
+    function putJury(sheetName,data,blockSize){
+      const ws=wb.getWorksheet(sheetName);
       if(!ws)return;
-      let r=start;
+      clearRows(ws,4,Math.max(ws.rowCount,4+data.length*blockSize),15);
+      let r=4;
       for(const x of data){
-        const vals=[x.ilan,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||x.der,Number(x.ad)||x.ad,x.nitelik];
+        const vals=[x.ilan,x.birim,x.bolum,x.abd,x.unvan,x.der,x.ad,x.nitelik];
         for(let c=1;c<=8;c++)ws.getCell(r,c).value=vals[c-1];
-        // Candidate and jury names remain blank; serial numbers are preserved/created.
         for(let k=0;k<blockSize;k++){
-          ws.getCell(r+k,9).value=null;
-          ws.getCell(r+k,10).value=k+1;
-          ws.getCell(r+k,11).value=null;
-          ws.getCell(r+k,12).value=null;
+          ws.getCell(r+k,10).value=k+1; // SIRA NO
+          ws.getCell(r+k,9).value=null;  // candidate
+          ws.getCell(r+k,11).value=null; // asıl/yedek
+          ws.getCell(r+k,12).value=null; // jury name
+          ws.getCell(r+k,13).value=null; // address
+          ws.getCell(r+k,14).value=null; // email
+          ws.getCell(r+k,15).value=null; // phone
         }
         r+=blockSize;
       }
     }
-    putJury("PROF  JÜRİ LİSTESİ",prof,10,4);
-    putJury("DOÇENT JÜRİ LİSTESİ",doc,8,4);
+    putJury("PROF  JÜRİ LİSTESİ",prof,10);
+    putJury("DOÇENT JÜRİ LİSTESİ",doc,8);
+
+    // Update the date / Gazette number in the template headings when the filename contains them.
+    const fn=fileNameForExport||"";
+    const dm=fn.match(/(\d{2}\.\d{2}\.\d{4})/);
+    const gm=fn.match(/\b(\d{5})\b/);
+    const date=dm?dm[1]:"";
+    const gaz=gm?gm[1]:"";
+    if(date||gaz){
+      for(const name of ["PROF. BAŞVURAN LİSTESİ","DOÇ. BAŞVURAN LİSTESİ"," ARŞİV","PROF  JÜRİ LİSTESİ","DOÇENT JÜRİ LİSTESİ"]){
+        const ws=wb.getWorksheet(name); if(!ws)continue;
+        for(let r=1;r<=3;r++){
+          const cell=ws.getCell(r,1);
+          if(typeof cell.value==="string"){
+            if(date)cell.value=cell.value.replace(/\d{2}\.\d{2}\.\d{4}/g,date);
+            if(gaz)cell.value=cell.value.replace(/\b\d{5}\b/g,gaz);
+          }
+        }
+      }
+    }
 
     const out=await wb.xlsx.writeBuffer();
     const blob=new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SDU_ogretim_uyesi_ilanlari.xlsx";a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=(date?date.replace(/\./g,"-")+"_":"")+"SDU_Prof_Docent_Ilanlari.xlsx";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);
   }catch(e){
     console.error(e);
     alert("Excel oluşturulamadı: "+e.message);
