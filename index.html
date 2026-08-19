@@ -28,7 +28,7 @@ input,select{width:100%;box-sizing:border-box;padding:7px;border:1px solid #cbd5
 <div class="muted">PDF yükle → Profesör/Doçent ilanlarını metin tabanlı tablodan çıkar → kontrol et → Excel oluştur.</div>
 </div>
 <div class="card">
-<div class="drop" id="drop">PDF seçmek için dokun<input id="file" type="file" accept="application/pdf" style="display:none"></div>
+<label class="drop" id="drop" for="file">📄 PDF SEÇ / TELEFONDAN YÜKLE<input id="file" type="file" accept="application/pdf" style="display:block;margin:18px auto 0;max-width:100%;font-size:16px"></label>
 <div id="status" class="muted" style="margin-top:12px"></div>
 </div>
 <div class="card" id="result" style="display:none">
@@ -43,12 +43,10 @@ input,select{width:100%;box-sizing:border-box;padding:7px;border:1px solid #cbd5
 <script>
 const pdfjs = window.pdfjsLib;
 pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-const $=s=>document.querySelector(s), norm=s=>(s||"").replace(/\s+/g," ").trim();
+const $=s=>document.querySelector(s);
 let rows=[];
 
-$("#drop").onclick=()=>$("#file").click();
 $("#file").onchange=e=>e.target.files[0]&&process(e.target.files[0]);
-$("#file").onclick=e=>e.stopPropagation();
 $("#drop").ondragover=e=>e.preventDefault();
 $("#drop").ondrop=e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)process(f)};
 
