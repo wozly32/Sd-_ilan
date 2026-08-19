@@ -1,83 +1,205 @@
 <!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SDÜ İlan Otomasyonu</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
-<style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#172033}.wrap{max-width:1150px;margin:auto;padding:22px}.card{background:#fff;border-radius:18px;padding:22px;box-shadow:0 8px 30px #00000010;margin-bottom:18px}h1{margin:0 0 8px;font-size:27px}.sub{color:#657085;line-height:1.5}.drop{border:2px dashed #7c8aa5;border-radius:16px;padding:34px;text-align:center;background:#fafbfe;cursor:pointer}.drop.drag{background:#eef4ff;border-color:#315efb}.btn{border:0;border-radius:11px;padding:12px 18px;font-weight:700;cursor:pointer;background:#315efb;color:#fff}.btn:disabled{opacity:.45}.status{margin-top:14px;padding:12px;border-radius:10px;background:#f0f3f8}.warn{background:#fff4d6;color:#7a5700}.ok{background:#e9f8ef;color:#176b3a}.err{background:#ffe9e9;color:#8b2020}.tablewrap{overflow:auto}.grid{width:100%;border-collapse:collapse;font-size:12px}.grid th,.grid td{border:1px solid #cbd2df;padding:7px;vertical-align:top}.grid th{background:#eef1f6;position:sticky;top:0}.grid input,.grid select{width:100%;border:1px solid #d3d9e4;border-radius:6px;padding:6px}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#e9eef8;margin:2px}.hidden{display:none}.small{font-size:12px;color:#6d7789}.checks{margin-top:12px}.check{padding:8px 10px;border-radius:8px;margin:5px 0;background:#fff4d6;color:#7a5700}.check.ok{background:#e9f8ef;color:#176b3a}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}</style></head>
-<body><div class="wrap">
-<div class="card"><h1>SDÜ Öğretim Üyesi İlan Otomasyonu</h1><div class="sub">PDF yükle → yalnız Profesör/Doçent ilanlarını çıkar → kontrol et → Excel oluştur.</div></div>
-<div class="card"><label class="drop" id="drop"><strong>PDF'yi buraya bırak</strong><br><span>veya telefondan PDF seçmek için dokun</span><input id="file" type="file" accept="application/pdf" hidden></label><div id="status" class="status hidden"></div><div id="checks" class="checks hidden"></div></div>
-<div id="results" class="card hidden"><h2>Bulunan ilanlar</h2><div class="small">Sistem tabloyu OCR ile satır/sütun bazında okur. Emin olmadığı alanları <b>KONTROL</b> olarak işaretler. Jüri ve aday alanları otomatik doldurulmaz.</div><div class="tablewrap"><table class="grid"><thead><tr><th>İlan No</th><th>Birim</th><th>Bölüm</th><th>ABD/ASD/PRG</th><th>Unvan</th><th>Der.</th><th>Adet</th><th>Niteliği</th><th>Kontrol</th></tr></thead><tbody id="rows"></tbody></table></div><br><div class="toolbar"><button class="btn" id="make" disabled>Excel'i Oluştur</button><span class="small" id="makeHint">Tüm zorunlu alanlar doğrulanmadan Excel oluşturulmaz.</span></div></div></div>
-<script>
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-const $=id=>document.getElementById(id); let detected=[];
-$('drop').onclick=()=>$('file').click(); $('file').onchange=e=>e.target.files[0]&&run(e.target.files[0]);
-$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('drag')}; $('drop').ondragleave=()=>$('drop').classList.remove('drag'); $('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('drag');let f=e.dataTransfer.files[0];if(f)run(f)};
-function status(t,c=''){let s=$('status');s.className='status '+c;s.textContent=t;s.classList.remove('hidden')}
-function norm(s){return String(s||'').replace(/[|¦]/g,' ').replace(/\s+/g,' ').trim()}
-function esc(s){return String(s||'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
-function clean(s){return norm(s).replace(/^(?:[|Il]+\s*)+/,'').trim()}
-function titleOf(s){let p=(s||'').search(/profesör/i),d=(s||'').search(/doçent/i);if(p<0&&d<0)return '';if(p<0)return 'Doçent';if(d<0)return 'Profesör';return p<d?'Profesör':'Doçent'}
-function getIds(words){return words.filter(w=>/^4\d{3}$/.test(w.text)&&+w.text>=4000&&+w.text<5000).map(w=>({id:+w.text,x:w.left+w.width/2,y:w.top+w.height/2}))}
-function colBounds(W){return [0.30,0.327,0.417,0.494,0.582,0.648,0.690,0.715,0.995].map(x=>x*W)}
-function stripIds(s){return norm(s).replace(/\b(?:4\d{3}|10\d{2})\b/g,'').trim()}
-function buildRows(words,ids,W,H){
-  const b=colBounds(W), out=[];
-  ids.sort((a,b)=>a.y-b.y);
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SDÜ İlan Otomasyonu</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f5f9;color:#182033;margin:0}
+.wrap{max-width:1100px;margin:24px auto;padding:0 14px}
+.card{background:white;border-radius:22px;padding:24px;box-shadow:0 8px 28px #0001;margin-bottom:18px}
+h1{margin:0 0 8px;font-size:30px}.muted{color:#6b7280}
+.drop{border:2px dashed #8b97ab;border-radius:16px;padding:28px;text-align:center;cursor:pointer}
+button{background:#2563eb;color:#fff;border:0;border-radius:12px;padding:13px 18px;font-size:16px;font-weight:700}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13px}
+th,td{border:1px solid #cbd5e1;padding:6px;vertical-align:top}
+th{background:#eef2f7;position:sticky;top:0}
+input,select{width:100%;box-sizing:border-box;padding:7px;border:1px solid #cbd5e1;border-radius:8px}
+.bad{background:#fff1f2;border-color:#ef4444}.ok{color:#15803d}.warn{color:#b45309}
+.small{font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>SDÜ Öğretim Üyesi İlan Otomasyonu</h1>
+<div class="muted">PDF yükle → Profesör/Doçent ilanlarını metin tabanlı tablodan çıkar → kontrol et → Excel oluştur.</div>
+</div>
+<div class="card">
+<div class="drop" id="drop">PDF seçmek için dokun<input id="file" type="file" accept="application/pdf" style="display:none"></div>
+<div id="status" class="muted" style="margin-top:12px"></div>
+</div>
+<div class="card" id="result" style="display:none">
+<h2>Bulunan ilanlar</h2>
+<div class="muted small">PDF'nin gerçek metin koordinatları kullanılır; OCR kullanılmaz. Emin olunmayan alanlar KONTROL olarak işaretlenir.</div>
+<div style="overflow:auto"><table id="tbl"><thead><tr>
+<th>İlan No</th><th>Birim</th><th>Bölüm</th><th>ABD/ASD/PRG</th><th>Unvan</th><th>Der.</th><th>Ad.</th><th>Nitelik</th>
+</tr></thead><tbody></tbody></table></div>
+<br><button id="make">Excel'i Oluştur</button>
+</div>
+</div>
+<script type="module">
+const pdfjs = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs");
+pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
+const $=s=>document.querySelector(s), norm=s=>(s||"").replace(/\s+/g," ").trim();
+let rows=[];
+
+$("#drop").onclick=()=>$("#file").click();
+$("#file").onchange=e=>e.target.files[0]&&process(e.target.files[0]);
+$("#drop").ondragover=e=>e.preventDefault();
+$("#drop").ondrop=e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)process(f)};
+
+
+function norm(s){return (s||"").replace(/\s+/g," ").trim()}
+const COLS=[0,68.79,134.79,201.87,277.37,322.61,355.61,385.64,575.86];
+const ROW_ID_OFFSET=14.06;
+
+function wordsForPage(tc){
+  return tc.items.map(it=>{
+    const t=it.transform||[1,0,0,1,0,0];
+    return {text:it.str||"",x:t[4],y:t[5],h:Math.abs(t[3]||it.height||10)};
+  }).filter(w=>norm(w.text));
+}
+function colIndex(x,width){
+  const scale=width/581.253;
+  for(let i=0;i<8;i++){
+    if(x >= COLS[i]*scale && x < COLS[i+1]*scale) return i;
+  }
+  return 7;
+}
+function extractRows(items,pageWidth){
+  const scale=pageWidth/581.253;
+  const ids=items.filter(w=>/^4\d{3}$/.test(norm(w.text))).sort((a,b)=>a.y-b.y);
+  const out=[];
   for(let i=0;i<ids.length;i++){
-    const id=ids[i], top=i?(ids[i-1].y+id.y)/2:id.y-22, bot=i<ids.length-1?(id.y+ids[i+1].y)/2:id.y+22;
+    const id=ids[i];
+    const top=id.y-ROW_ID_OFFSET*scale;
+    const bottom=(i+1<ids.length)?ids[i+1].y-ROW_ID_OFFSET*scale:10000;
+    if(bottom<=top) continue;
+    const block=items.filter(w=>w.y>=top-0.7 && w.y<bottom-0.7);
     const cols=Array.from({length:8},()=>[]);
-    for(const w of words){const cy=w.top+w.height/2,cx=w.left+w.width/2;if(cy<top||cy>=bot||cx<b[0]||cx>b[8]||!w.text.trim())continue;let c=-1;for(let k=0;k<8;k++){if(cx>=b[k]&&cx<b[k+1]){c=k;break}}if(c>=0)cols[c].push(w)}
-    let vals=cols.map(a=>clean(a.sort((x,y)=>x.top-y.top||x.left-y.left).map(w=>w.text).join(' ')));
-    vals=vals.map((v,k)=>k===0?String(id.id):stripIds(v));
-    const all=vals.join(' '), explicit=titleOf(all);
-    let unvan=explicit; if(!unvan) unvan=(id.id>=4100?'Doçent':'Profesör');
-    if(vals[4]&&!/profesör|doçent/i.test(vals[4])) vals[4]=unvan;
-    const der=(/\b[1-9]\b/.test(vals[5])? (vals[5].match(/\b[1-9]\b/)||[''])[0] : '1');
-    const adet=(/\b[1-9]\b/.test(vals[6])? (vals[6].match(/\b[1-9]\b/)||[''])[0] : '1');
-    const nitelik=vals[7].replace(/^(?:[0-9Il|]+\s*)+/,'').trim();
-    const warnings=[];
-    if(!vals[1]||vals[1].length<4)warnings.push('Birim');
-    if(!vals[2]||vals[2].length<3)warnings.push('Bölüm');
-    if(!vals[3]||vals[3].length<3)warnings.push('ABD/ASD/PRG');
-    if(!nitelik||nitelik.length<20)warnings.push('Niteliği');
-    if(!explicit)warnings.push('Unvan OCR');
-    out.push({id:id.id,birim:vals[1],bolum:vals[2],abd:vals[3],unvan,der,adet,nitelik,warnings});
+    for(const w of block) cols[colIndex(w.x,pageWidth)].push(w.text);
+    const c=cols.map(a=>norm(a.join(" ")));
+    const title=/\bProfesör\b/i.test(c[4])?"Profesör":(/\bDoçent\b/i.test(c[4])?"Doçent":"");
+    if(!title) continue;
+    const row={ilan:norm(id.text),birim:c[1],bolum:c[2],abd:c[3],unvan:title,der:c[5],ad:c[6],nitelik:c[7]};
+    row.warn=!(row.ilan && row.birim && row.bolum && row.abd && row.unvan && row.der && row.ad && row.nitelik);
+    out.push(row);
   }
   return out;
 }
-async function ocrPage(canvas,worker){
-  const a=await worker.recognize(canvas,{tessedit_pageseg_mode:'11'}); const ids=getIds(a.data.words||[]);
-  if(!ids.length)return [];
-  const b=await worker.recognize(canvas,{tessedit_pageseg_mode:'4'}); const words=(b.data.words||[]).map(w=>({text:w.text,left:w.bbox.x0,top:w.bbox.y0,width:w.bbox.x1-w.bbox.x0,height:w.bbox.y1-w.bbox.y0}));
-  return buildRows(words,ids,canvas.width,canvas.height);
+
+async function process(file){
+  rows=[]; $("#result").style.display="none"; $("#status").textContent="PDF okunuyor...";
+  try{
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjs.getDocument({data:buf}).promise;
+    for(let p=1;p<=pdf.numPages;p++){
+      $("#status").textContent=`Sayfa ${p}/${pdf.numPages} okunuyor...`;
+      const page=await pdf.getPage(p);
+      const tc=await page.getTextContent();
+      rows.push(...extractRows(wordsForPage(tc),page.getViewport({scale:1}).width));
+    }
+    const seen=new Set();
+    rows=rows.filter(r=>{if(seen.has(r.ilan))return false;seen.add(r.ilan);return true})
+             .sort((a,b)=>+a.ilan-+b.ilan);
+    render();
+    $("#status").innerHTML=`<span class="${rows.length?"ok":"warn"}">${rows.length} Profesör/Doçent ilanı bulundu.</span>`;
+  }catch(e){console.error(e);$("#status").textContent="PDF okunamadı: "+e.message}
 }
-async function run(file){
- status('PDF okunuyor ve tablolar taranıyor… Bu işlem telefonda birkaç dakika sürebilir.');$('results').classList.add('hidden');$('checks').classList.add('hidden');$('make').disabled=true;
- try{const buf=await file.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;const worker=await Tesseract.createWorker('tur');detected=[];
-  for(let i=1;i<=pdf.numPages;i++){status(`Sayfa ${i}/${pdf.numPages} taranıyor…`);const page=await pdf.getPage(i);const vp=page.getViewport({scale:2.5});const c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;detected.push(...await ocrPage(c,worker))}
-  await worker.terminate(); const seen=new Set(); detected=detected.filter(x=>{if(seen.has(x.id))return false;seen.add(x.id);return true}).sort((a,b)=>a.id-b.id);
-  // Prof/Doçent block continuity: only use inferred unvan when OCR missed the title, and show a warning.
-  render(); validate();
- }catch(e){console.error(e);status('İşlem sırasında hata oluştu: '+e.message,'err')}
+function render(){
+  const tb=$("#tbl tbody");tb.innerHTML="";
+  for(const r of rows){
+    const tr=document.createElement("tr");
+    const vals=[r.ilan,r.birim,r.bolum,r.abd,r.unvan,r.der,r.ad,r.nitelik];
+    vals.forEach((v,i)=>{
+      const td=document.createElement("td");
+      if(i===4){
+        const s=document.createElement("select");
+        ["Profesör","Doçent"].forEach(o=>{const op=document.createElement("option");op.value=o;op.textContent=o;op.selected=o===v;s.append(op)});
+        s.onchange=()=>r.unvan=s.value;td.append(s);
+      }else{
+        const inp=document.createElement("input");inp.value=v||"";
+        if(!v||v.length<2)inp.className="bad";
+        inp.oninput=()=>r[["ilan","birim","bolum","abd","unvan","der","ad","nitelik"][i]]=inp.value;
+        td.append(inp);
+      }
+      tr.append(td);
+    });
+    tb.append(tr);
+  }
 }
-function validate(){
- const checks=[]; if(!detected.length)checks.push(['err','Profesör/Doçent ilanı bulunamadı.']);
- const ids=detected.map(x=>x.id); const bad=ids.filter(x=>x<4000||x>=5000); if(bad.length)checks.push(['warn','Şüpheli ilan numarası: '+bad.join(', ')]);
- const sorted=[...ids].sort((a,b)=>a-b); for(let i=1;i<sorted.length;i++){if(sorted[i]===sorted[i-1])checks.push(['warn','Tekrarlanan ilan numarası: '+sorted[i]])}
- detected.forEach(x=>{if(x.warnings.length)checks.push(['warn',`${x.id}: ${x.warnings.join(', ')}`])});
- let box=$('checks');box.innerHTML='';if(checks.length){checks.forEach(([c,t])=>{let d=document.createElement('div');d.className='check '+c;d.textContent='⚠ '+t;box.appendChild(d)});box.classList.remove('hidden')}else{box.innerHTML='<div class="check ok">✓ Tüm alanlar otomatik kontrolden geçti.</div>';box.classList.remove('hidden')}
- const blocking=detected.some(x=>x.warnings.length); $('make').disabled=!detected.length||blocking; $('makeHint').textContent=blocking?'KONTROL uyarıları düzeltilmeden Excel oluşturulmaz.':'Tüm alanlar doğrulandı; Excel oluşturabilirsiniz.'; status(`${detected.length} Profesör/Doçent ilanı bulundu. Kontrol sonuçlarını incele.` ,blocking?'warn':'ok');
-}
-function render(){let tb=$('rows');tb.innerHTML='';detected.forEach((r,i)=>{let tr=document.createElement('tr');tr.innerHTML=`<td><input data-i="${i}" data-k="id" value="${r.id}"></td><td><input data-i="${i}" data-k="birim" value="${esc(r.birim)}"></td><td><input data-i="${i}" data-k="bolum" value="${esc(r.bolum)}"></td><td><input data-i="${i}" data-k="abd" value="${esc(r.abd)}"></td><td><select data-i="${i}" data-k="unvan"><option ${r.unvan==='Profesör'?'selected':''}>Profesör</option><option ${r.unvan==='Doçent'?'selected':''}>Doçent</option></select></td><td><input data-i="${i}" data-k="der" value="${esc(r.der)}"></td><td><input data-i="${i}" data-k="adet" value="${esc(r.adet)}"></td><td><input data-i="${i}" data-k="nitelik" value="${esc(r.nitelik)}"></td><td><span class="pill ${r.warnings.length?'warn':'ok'}">${r.warnings.length?'KONTROL':'OK'}</span></td>`;tb.appendChild(tr)});$('results').classList.remove('hidden');tb.querySelectorAll('input,select').forEach(el=>el.oninput=()=>{detected[+el.dataset.i][el.dataset.k]=el.value;detected[+el.dataset.i].warnings=[];validate()})}
-function copyRowStyle(src,dst){dst.height=src.height;for(let c=1;c<=src.cellCount;c++){const a=src.getCell(c),b=dst.getCell(c);b.style=JSON.parse(JSON.stringify(a.style));b.numFmt=a.numFmt;b.alignment=a.alignment?JSON.parse(JSON.stringify(a.alignment)):undefined;b.border=a.border?JSON.parse(JSON.stringify(a.border)):undefined;b.fill=a.fill?JSON.parse(JSON.stringify(a.fill)):undefined;b.font=a.font?JSON.parse(JSON.stringify(a.font)):undefined}}
-function clearSheet(ws,start){for(let r=start;r<=ws.rowCount;r++)for(let c=1;c<=ws.columnCount;c++)ws.getCell(r,c).value=null}
-function fillSheet(ws,data,start){clearSheet(ws,start);while(ws.rowCount<start+data.length-1){const nr=ws.addRow([]);copyRowStyle(ws.getRow(start),nr)}data.forEach((x,j)=>{const r=ws.getRow(start+j);[x.id,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||1,Number(x.adet)||1,x.nitelik,''].forEach((v,k)=>r.getCell(k+1).value=v)})}
-function fillJury(ws,data,rowsPer){clearSheet(ws,4);data.forEach((x,j)=>{let r=4+j*rowsPer;let row=ws.getRow(r);[x.id,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||1,Number(x.adet)||1,x.nitelik,'',1,'','','','',''].forEach((v,k)=>row.getCell(k+1).value=v);for(let k=1;k<rowsPer;k++)ws.getRow(r+k).getCell(10).value=k+1})}
-async function makeExcel(){
- if($('make').disabled)return;const wb=new ExcelJS.Workbook();await wb.xlsx.load(await (await fetch('template.xlsx')).arrayBuffer());const prof=detected.filter(x=>x.unvan==='Profesör'),doc=detected.filter(x=>x.unvan==='Doçent');
- fillSheet(wb.getWorksheet('PROF. BAŞVURAN LİSTESİ'),prof,3);fillSheet(wb.getWorksheet('DOÇ. BAŞVURAN LİSTESİ'),doc,3);fillSheet(wb.getWorksheet(' ARŞİV'),detected,3);fillJury(wb.getWorksheet('DOÇENT JÜRİ LİSTESİ'),doc,8);fillJury(wb.getWorksheet('PROF  JÜRİ LİSTESİ'),prof,10);
- const buf=await wb.xlsx.writeBuffer();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download='SDU_ilan_otomasyonu_guncel.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
-}
-$('make').onclick=makeExcel;
-</script></body></html>
+
+
+$("#make").onclick=async()=>{
+  if(!rows.length)return alert("İlan bulunamadı.");
+  const bad=rows.some(r=>r.warn||!r.birim||!r.bolum||!r.abd||!r.nitelik);
+  if(bad&&!confirm("Bazı alanlar eksik/KONTROL. Yine de Excel oluşturulsun mu?"))return;
+  try{
+    const resp=await fetch("./template.xlsx",{cache:"no-store"});
+    if(!resp.ok)throw new Error("template.xlsx bulunamadı");
+    const buf=await resp.arrayBuffer();
+    const wb=new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+
+    const prof=rows.filter(r=>r.unvan==="Profesör");
+    const doc=rows.filter(r=>r.unvan==="Doçent");
+    const all=[...prof,...doc];
+
+    function putSheet(name,data,cols=8,start=3){
+      const ws=wb.getWorksheet(name);
+      if(!ws)throw new Error(name+" sayfası bulunamadı");
+      // Clear old values only; formatting/merged cells stay intact.
+      for(let r=start;r<=ws.rowCount;r++){
+        for(let c=1;c<=cols;c++){
+          const cell=ws.getCell(r,c);
+          if(!cell.isMerged) cell.value=null;
+        }
+      }
+      data.forEach((x,i)=>{
+        const r=start+i;
+        const vals=[x.ilan,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||x.der,Number(x.ad)||x.ad,x.nitelik];
+        vals.forEach((v,c)=>ws.getCell(r,c+1).value=v);
+      });
+    }
+    putSheet("PROF. BAŞVURAN LİSTESİ",prof,9,3);
+    putSheet("DOÇ. BAŞVURAN LİSTESİ",doc,9,3);
+    putSheet(" ARŞİV",all,10,3);
+    // Archive publication-file count is intentionally left blank.
+    const aws=wb.getWorksheet(" ARŞİV");
+    all.forEach((_,i)=>aws.getCell(3+i,10).value=null);
+
+    // Jury sheets: keep candidate/jury fields blank, only populate the announcement data.
+    function putJury(name,data,blockSize,start){
+      const ws=wb.getWorksheet(name);
+      if(!ws)return;
+      let r=start;
+      for(const x of data){
+        const vals=[x.ilan,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||x.der,Number(x.ad)||x.ad,x.nitelik];
+        for(let c=1;c<=8;c++)ws.getCell(r,c).value=vals[c-1];
+        // Candidate and jury names remain blank; serial numbers are preserved/created.
+        for(let k=0;k<blockSize;k++){
+          ws.getCell(r+k,9).value=null;
+          ws.getCell(r+k,10).value=k+1;
+          ws.getCell(r+k,11).value=null;
+          ws.getCell(r+k,12).value=null;
+        }
+        r+=blockSize;
+      }
+    }
+    putJury("PROF  JÜRİ LİSTESİ",prof,10,4);
+    putJury("DOÇENT JÜRİ LİSTESİ",doc,8,4);
+
+    const out=await wb.xlsx.writeBuffer();
+    const blob=new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="SDU_ogretim_uyesi_ilanlari.xlsx";a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }catch(e){
+    console.error(e);
+    alert("Excel oluşturulamadı: "+e.message);
+  }
+};
+</script>
+</body></html>
