@@ -1,0 +1,58 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SDÜ İlan Otomasyonu</title><script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script><script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script><style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#172033}.wrap{max-width:1100px;margin:auto;padding:22px}.card{background:white;border-radius:18px;padding:22px;box-shadow:0 8px 30px #00000010;margin-bottom:18px}h1{margin:0 0 8px;font-size:27px}.sub{color:#657085}.drop{border:2px dashed #7c8aa5;border-radius:16px;padding:34px;text-align:center;background:#fafbfe;cursor:pointer}.drop.drag{background:#eef4ff;border-color:#315efb}.btn{border:0;border-radius:11px;padding:12px 18px;font-weight:700;cursor:pointer;background:#315efb;color:#fff}.btn:disabled{opacity:.45}.status{margin-top:14px;padding:12px;border-radius:10px;background:#f0f3f8}.warn{background:#fff4d6;color:#7a5700}.ok{background:#e9f8ef;color:#176b3a}.err{background:#ffe9e9;color:#8b2020}.tablewrap{overflow:auto}.grid{width:100%;border-collapse:collapse;font-size:12px}.grid th,.grid td{border:1px solid #cbd2df;padding:7px;vertical-align:top}.grid th{background:#eef1f6}.grid input{width:100%;border:1px solid #d3d9e4;border-radius:6px;padding:6px}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#e9eef8;margin:2px}.hidden{display:none}.small{font-size:12px;color:#6d7789}</style></head><body><div class="wrap"><div class="card"><h1>SDÜ Öğretim Üyesi İlan Otomasyonu</h1><div class="sub">PDF yükle → Profesör/Doçent ilanlarını çıkar → kontrol et → Excel oluştur.</div></div><div class="card"><label class="drop" id="drop"><strong>PDF'yi buraya bırak</strong><br><span>veya telefondan PDF seçmek için dokun</span><input id="file" type="file" accept="application/pdf" hidden></label><div id="status" class="status hidden"></div></div><div id="results" class="card hidden"><h2>Bulunan ilanlar</h2><div class="small">Sistem sadece Profesör ve Doçent kadrolarını alır. Emin olmadığı alanları işaretler. Oluşturmadan önce tabloyu düzeltebilirsin.</div><div class="tablewrap"><table class="grid"><thead><tr><th>İlan No</th><th>Birim</th><th>Bölüm</th><th>ABD/ASD/PRG</th><th>Unvan</th><th>Der.</th><th>Adet</th><th>Niteliği</th><th>Kontrol</th></tr></thead><tbody id="rows"></tbody></table></div><br><button class="btn" id="make">Excel'i Oluştur</button></div></div><script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const $=id=>document.getElementById(id); let detected=[];
+$('drop').onclick=()=>$('file').click(); $('file').onchange=e=>e.target.files[0]&&run(e.target.files[0]);
+$('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('drag')}; $('drop').ondragleave=()=>$('drop').classList.remove('drag'); $('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('drag');let f=e.dataTransfer.files[0];if(f)run(f)};
+function status(t,c=''){let s=$('status');s.className='status '+c;s.textContent=t;s.classList.remove('hidden')}
+function norm(s){return (s||'').replace(/\s+/g,' ').trim()}
+function firstTitle(s){let p=s.search(/profesör/i),d=s.search(/doçent/i);if(p<0&&d<0)return '';if(p<0)return 'Doçent';if(d<0)return 'Profesör';return p<d?'Profesör':'Doçent'}
+function cleanNitelik(s){return norm(s.replace(/^profesör|^doçent/i,'').replace(/^\s*[11]\s+[11]\s*/,'').replace(/\s+/g,' '))}
+function buildRows(words, ids, W,H){
+ const bounds=[.282,.309,.392,.472,.550,.601,.623,.642,.941].map(x=>x*W);
+ const centers=ids.sort((a,b)=>a.y-b.y); const out=[];
+ for(let i=0;i<centers.length;i++){
+  const id=centers[i], top=i? (centers[i-1].y+id.y)/2: id.y-18, bot=i<centers.length-1?(id.y+centers[i+1].y)/2:id.y+18;
+  const cols=Array.from({length:8},()=>[]);
+  for(const w of words){const y=w.top+w.height/2,x=w.left+w.width/2;if(y<top||y>=bot||x<bounds[0]||x>bounds[8]||!w.text.trim())continue;let c=0;while(c<8&&x>=bounds[c+1])c++;if(c<8)cols[c].push(w)}
+  const vals=cols.map(a=>norm(a.sort((a,b)=>a.top-b.top||a.left-b.left).map(w=>w.text).join(' ')));
+  let title=vals[4]||firstTitle(vals.join(' '));
+  if(!/^(Profesör|Doçent)$/i.test(title)) title=firstTitle(vals.join(' '));
+  if(!/^(Profesör|Doçent)$/i.test(title)) continue;
+  const idn=parseInt(id.text.replace(/\D/g,''),10); if(!(idn>=4000&&idn<5000))continue;
+  out.push({id:idn,birim:vals[1],bolum:vals[2],abd:vals[3],unvan:title,der:vals[5]||'1',adet:vals[6]||'1',nitelik:cleanNitelik(vals[7]),score:vals[1]&&vals[3]&&vals[7]?'OK':'KONTROL'});
+ }
+ return out;
+}
+async function ocrPage(canvas,worker){
+ const p11=await worker.recognize(canvas,{tessedit_pageseg_mode:'11'}); const w11=p11.data.words||[]; const ids=w11.filter(w=>/^4\d{3}$/.test(norm(w.text))&&parseInt(w.text)>=4000&&parseInt(w.text)<5000).map(w=>({text:norm(w.text),left:w.bbox.x0,top:w.bbox.y0,width:w.bbox.x1-w.bbox.x0,height:w.bbox.y1-w.bbox.y0,y:(w.bbox.y0+w.bbox.y1)/2}));
+ if(!ids.length)return [];
+ const p6=await worker.recognize(canvas,{tessedit_pageseg_mode:'6'}); const words=(p6.data.words||[]).map(w=>({text:w.text,left:w.bbox.x0,top:w.bbox.y0,width:w.bbox.x1-w.bbox.x0,height:w.bbox.y1-w.bbox.y0}));
+ return buildRows(words,ids,canvas.width,canvas.height);
+}
+async function run(file){
+ status('PDF okunuyor ve tablolar taranıyor… Bu işlem telefonda birkaç dakika sürebilir.'); $('results').classList.add('hidden');
+ try{const buf=await file.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;const worker=await Tesseract.createWorker('tur');detected=[];
+ for(let i=1;i<=pdf.numPages;i++){status(`Sayfa ${i}/${pdf.numPages} taranıyor…`);const page=await pdf.getPage(i);const vp=page.getViewport({scale:2.0});const c=document.createElement('canvas');c.width=vp.width;c.height=vp.height;await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;let r=await ocrPage(c,worker);detected.push(...r)}
+ await worker.terminate(); let seen=new Set();detected=detected.filter(x=>{if(seen.has(x.id))return false;seen.add(x.id);return true});
+ detected.sort((a,b)=>a.id-b.id); render(); if(!detected.length)status('Profesör/Doçent ilanı bulunamadı. PDF görüntüsünün okunamadığı veya farklı formatta olduğu anlaşılıyor.','err'); else status(`${detected.length} Profesör/Doçent ilanı bulundu. Kontrol etmeden Excel oluşturma.`,'ok');
+ }catch(e){console.error(e);status('İşlem sırasında hata oluştu: '+e.message,'err')}
+}
+function render(){let tb=$('rows');tb.innerHTML='';detected.forEach((r,i)=>{let tr=document.createElement('tr');tr.innerHTML=`<td><input data-i="${i}" data-k="id" value="${r.id}"></td><td><input data-i="${i}" data-k="birim" value="${esc(r.birim)}"></td><td><input data-i="${i}" data-k="bolum" value="${esc(r.bolum)}"></td><td><input data-i="${i}" data-k="abd" value="${esc(r.abd)}"></td><td><select data-i="${i}" data-k="unvan"><option ${r.unvan==='Profesör'?'selected':''}>Profesör</option><option ${r.unvan==='Doçent'?'selected':''}>Doçent</option></select></td><td><input data-i="${i}" data-k="der" value="${esc(r.der)}"></td><td><input data-i="${i}" data-k="adet" value="${esc(r.adet)}"></td><td><input data-i="${i}" data-k="nitelik" value="${esc(r.nitelik)}"></td><td><span class="pill ${r.score==='OK'?'ok':'warn'}">${r.score}</span></td>`;tb.appendChild(tr)});$('results').classList.remove('hidden');tb.querySelectorAll('input,select').forEach(el=>el.oninput=()=>{detected[+el.dataset.i][el.dataset.k]=el.value});}
+function esc(s){return String(s||'').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+function clearCell(cell){cell.value=null; if(cell.hyperlink)cell.hyperlink=null}
+function copyRowStyle(src,dst){for(let c=1;c<=src.cellCount;c++){let a=src.getCell(c),b=dst.getCell(c);b.style=JSON.parse(JSON.stringify(a.style));b.numFmt=a.numFmt;b.alignment=a.alignment?JSON.parse(JSON.stringify(a.alignment)):undefined;b.border=a.border?JSON.parse(JSON.stringify(a.border)):undefined;b.fill=a.fill?JSON.parse(JSON.stringify(a.fill)):undefined;b.font=a.font?JSON.parse(JSON.stringify(a.font)):undefined;b.protection=a.protection?JSON.parse(JSON.stringify(a.protection)):undefined;}dst.height=src.height}
+async function makeExcel(){
+ const wb=new ExcelJS.Workbook();const resp=await fetch('template.xlsx');await wb.xlsx.load(await resp.arrayBuffer());
+ const date='';
+ const prof=detected.filter(x=>x.unvan==='Profesör'), doc=detected.filter(x=>x.unvan==='Doçent');
+ const clearAndFill=(ws, data, headerRow, startRow, maxRows)=>{for(let r=startRow;r<=ws.rowCount;r++){for(let c=1;c<=ws.columnCount;c++)ws.getCell(r,c).value=null}
+ let needed=startRow+data.length-1;while(ws.rowCount<needed){let nr=ws.addRow([]);copyRowStyle(ws.getRow(startRow),nr)}
+ data.forEach((x,j)=>{let row=ws.getRow(startRow+j);[x.id,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||1,Number(x.adet)||1,x.nitelik,''].forEach((v,k)=>row.getCell(k+1).value=v)})};
+ clearAndFill(wb.getWorksheet('PROF. BAŞVURAN LİSTESİ'),prof,2,3);clearAndFill(wb.getWorksheet('DOÇ. BAŞVURAN LİSTESİ'),doc,2,3);clearAndFill(wb.getWorksheet(' ARŞİV'),detected,2,3);
+ const archive=wb.getWorksheet(' ARŞİV');detected.forEach((x,j)=>archive.getRow(3+j).getCell(10).value=null);
+ const fillJury=(ws,data,rowsPer)=>{let start=4;for(let r=4;r<=ws.rowCount;r++){for(let c=1;c<=ws.columnCount;c++)ws.getCell(r,c).value=null} data.forEach((x,j)=>{let r=start+j*rowsPer;let row=ws.getRow(r);[x.id,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||1,Number(x.adet)||1,x.nitelik,'',1,'','','','', ''].forEach((v,k)=>row.getCell(k+1).value=v);for(let k=1;k<rowsPer;k++){let rr=ws.getRow(r+k);rr.getCell(10).value=k+1}})};
+ fillJury(wb.getWorksheet('DOÇENT JÜRİ LİSTESİ'),doc,8);fillJury(wb.getWorksheet('PROF  JÜRİ LİSTESİ'),prof,10);
+ const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='SDU_ilan_otomasyonu_guncel.xlsx';a.click();URL.revokeObjectURL(a.href);
+}
+$('make').onclick=makeExcel;
+</script></body></html>
