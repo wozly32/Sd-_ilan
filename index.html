@@ -3,14 +3,37 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
-<style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#172033}.wrap{max-width:1150px;margin:auto;padding:22px}.card{background:#fff;border-radius:18px;padding:22px;box-shadow:0 8px 30px #00000010;margin-bottom:18px}h1{margin:0 0 8px;font-size:27px}.sub{color:#657085;line-height:1.5}.drop{border:2px dashed #7c8aa5;border-radius:16px;padding:34px;text-align:center;background:#fafbfe;cursor:pointer}.drop.drag{background:#eef4ff;border-color:#315efb}.btn{border:0;border-radius:11px;padding:12px 18px;font-weight:700;cursor:pointer;background:#315efb;color:#fff}.btn:disabled{opacity:.45}.status{margin-top:14px;padding:12px;border-radius:10px;background:#f0f3f8}.warn{background:#fff4d6;color:#7a5700}.ok{background:#e9f8ef;color:#176b3a}.err{background:#ffe9e9;color:#8b2020}.tablewrap{overflow:auto}.grid{width:100%;border-collapse:collapse;font-size:12px}.grid th,.grid td{border:1px solid #cbd2df;padding:7px;vertical-align:top}.grid th{background:#eef1f6;position:sticky;top:0}.grid input,.grid select{width:100%;border:1px solid #d3d9e4;border-radius:6px;padding:6px}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#e9eef8;margin:2px}.hidden{display:none}.small{font-size:12px;color:#6d7789}.checks{margin-top:12px}.check{padding:8px 10px;border-radius:8px;margin:5px 0;background:#fff4d6;color:#7a5700}.check.ok{background:#e9f8ef;color:#176b3a}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.drop strong{font-size:18px}.drop span{display:inline-block;margin-top:8px;color:#657085}.tablewrap{-webkit-overflow-scrolling:touch}.grid{min-width:1050px}.grid input{font-size:12px}.grid td{min-height:38px}.grid td:nth-child(8) input{min-width:280px}</style></head>
+<style>*{box-sizing:border-box}body{margin:0;background:#f5f7fb;font-family:Arial,sans-serif;color:#172033}.wrap{max-width:1150px;margin:auto;padding:22px}.card{background:#fff;border-radius:18px;padding:22px;box-shadow:0 8px 30px #00000010;margin-bottom:18px}h1{margin:0 0 8px;font-size:27px}.sub{color:#657085;line-height:1.5}.drop{border:2px dashed #7c8aa5;border-radius:16px;padding:34px;text-align:center;background:#fafbfe;cursor:pointer}.drop.drag{background:#eef4ff;border-color:#315efb}.btn{border:0;border-radius:11px;padding:12px 18px;font-weight:700;cursor:pointer;background:#315efb;color:#fff}.btn:disabled{opacity:.45}.status{margin-top:14px;padding:12px;border-radius:10px;background:#f0f3f8}.warn{background:#fff4d6;color:#7a5700}.ok{background:#e9f8ef;color:#176b3a}.err{background:#ffe9e9;color:#8b2020}.tablewrap{overflow:auto}.grid{width:100%;border-collapse:collapse;font-size:12px}.grid th,.grid td{border:1px solid #cbd2df;padding:7px;vertical-align:top}.grid th{background:#eef1f6;position:sticky;top:0}.grid input,.grid select{width:100%;border:1px solid #d3d9e4;border-radius:6px;padding:6px}.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#e9eef8;margin:2px}.hidden{display:none}.small{font-size:12px;color:#6d7789}.checks{margin-top:12px}.check{padding:8px 10px;border-radius:8px;margin:5px 0;background:#fff4d6;color:#7a5700}.check.ok{background:#e9f8ef;color:#176b3a}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.drop strong{font-size:18px}.drop span{display:inline-block;margin-top:8px;color:#657085}.tablewrap{-webkit-overflow-scrolling:touch}.uploadLabel{display:block;cursor:pointer;padding:6px}
+.drop input[type=file]{display:block;width:100%;margin-top:16px;padding:10px;border:1px solid #cbd2df;border-radius:10px;background:#fff;font-size:16px}
+@media(max-width:600px){.drop{padding:24px 14px}.drop input[type=file]{font-size:16px}.uploadLabel strong{font-size:17px}}
+.grid{min-width:1050px}.grid input{font-size:12px}.grid td{min-height:38px}.grid td:nth-child(8) input{min-width:280px}</style></head>
 <body><div class="wrap">
 <div class="card"><h1>SDÜ Öğretim Üyesi İlan Otomasyonu</h1><div class="sub">PDF yükle → tabloyu metin/OCR ile oku → Profesör/Doçent ilanlarını çıkar → kontrol et → standart Excel oluştur.</div></div>
-<div class="card"><div class="drop" id="drop"><strong>📄 PDF SEÇ / TELEFONDAN YÜKLE</strong><br><span>PDF dosyanı seç</span><input id="file" type="file" accept="application/pdf" hidden></div><div id="status" class="status hidden"></div><div id="checks" class="checks hidden"></div></div>
+<div class="card">
+  <div class="drop" id="drop">
+    <label for="file" class="uploadLabel">
+      <strong>📄 PDF SEÇ / TELEFONDAN YÜKLE</strong><br>
+      <span>PDF dosyanı seçmek için buraya dokun</span>
+    </label>
+    <input id="file" type="file" accept=".pdf,application/pdf" />
+  </div>
+  <div id="status" class="status hidden"></div>
+  <div id="checks" class="checks hidden"></div>
+</div>
 <div id="results" class="card hidden"><h2>Bulunan ilanlar</h2><div class="small">Sistem önce PDF'nin metin katmanını, gerekirse sayfa görüntüsünü OCR ile okur. Emin olmadığı alanları <b>KONTROL</b> olarak işaretler. Jüri ve aday alanları otomatik doldurulmaz.</div><div class="tablewrap"><table class="grid"><thead><tr><th>İlan No</th><th>Birim</th><th>Bölüm</th><th>ABD/ASD/PRG</th><th>Unvan</th><th>Der.</th><th>Adet</th><th>Niteliği</th><th>Kontrol</th></tr></thead><tbody id="rows"></tbody></table></div><br><div class="toolbar"><button class="btn" id="make" disabled>Excel'i Oluştur</button><span class="small" id="makeHint">Tüm zorunlu alanlar doğrulanmadan Excel oluşturulmaz.</span></div></div></div>
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const $=id=>document.getElementById(id); let detected=[];
+
+// Durum kutusu: PDF seçildikten sonra işlemin gerçekten başladığını
+// telefonda da görünür şekilde gösterir.
+function status(message, type=''){
+  const el=$('status');
+  el.textContent=message;
+  el.className='status'+(type ? ' '+type : '');
+  el.classList.remove('hidden');
+}
+
 
 function cleanText(s){
   return String(s||'')
@@ -144,7 +167,7 @@ function rowToRecord(r){
   if(abd.length<3) warnings.push('ABD/ASD/PRG');
   if(nitelik.length<20) warnings.push('Niteliği');
 
-  return {id,birim,bolum,abd,unvan:unvan||'Profesör',der,adet,nitelik,warnings};
+  return {id,birim,bolum,abd,unvan:unvan||'',der,adet,nitelik,warnings};
 }
 
 /* Image OCR. We do not assume any particular announcement-number range. */
@@ -194,31 +217,17 @@ function detectHeaderBounds(words,W){
   return [0,.08,.27,.42,.58,.67,.73,.78,1].map(x=>x*W);
 }
 function ocrRowsFromWords(words,W,H){
-  const ids=findIdWords(words);
-  if(!ids.length)return [];
-  const lines=groupByY(words,16);
-  const idLines=[];
-  for(const id of ids){
-    const line=lines.find(l=>l.words.includes(id.w));
-    if(line) idLines.push({id:id.id,y:id.y,line});
-  }
-  idLines.sort((a,b)=>a.y-b.y);
-
-  const out=[];
-  for(let i=0;i<idLines.length;i++){
-    const cur=idLines[i];
-    const top=i?((idLines[i-1].y+cur.y)/2):Math.max(0,cur.y-35);
-    const bot=i<idLines.length-1?((cur.y+idLines[i+1].y)/2):Math.min(H,cur.y+35);
-    const rowWords=words.filter(w=>{
-      const cy=w.top+w.height/2;
-      return cy>=top&&cy<bot&&w.text.trim();
-    }).sort((a,b)=>a.top-b.top||a.left-b.left);
-
-    const txt=cleanText(rowWords.map(w=>w.text).join(' '));
-    const rec=rowToRecord({id:cur.id,text:txt,lines:[]});
-    out.push(rec);
-  }
-  return out;
+  // OCR artık metni düz bir cümleye çevirmiyor. PDF metin katmanıyla aynı
+  // koordinat tabanlı sütun çözümünü kullanıyor; böylece taranmış PDF'lerde
+  // de BİRİM/BÖLÜM/ABD/UNVAN/NİTELİĞİ birbirine karışmıyor.
+  const items=(words||[]).map(w=>({
+    text:cleanText(w.text||''),
+    x:Number(w.left||0),
+    y:Number(w.top||0),
+    w:Number(w.width||0),
+    h:Number(w.height||10)
+  })).filter(x=>x.text);
+  return parseTextTablePage(items);
 }
 
 async function ocrPage(canvas,worker){
@@ -245,17 +254,27 @@ function mergeRecords(records){
     if(!r.id)continue;
     const old=map.get(r.id);
     if(!old){map.set(r.id,r);continue;}
-    // Prefer the record with more useful fields.
-    const score=x=>[x.birim,x.bolum,x.abd,x.nitelik].reduce((n,v)=>n+(String(v||'').length),0);
-    if(score(r)>score(old))map.set(r.id,r);
+    // Merge field-by-field. OCR should fill a missing field, not replace a
+    // good PDF text-layer value with a shorter/garbled OCR value.
+    for(const k of ['birim','bolum','abd','nitelik','der','adet']){
+      const a=String(old[k]||''), b=String(r[k]||'');
+      if(!a && b) old[k]=b;
+      else if(b.length>a.length*1.35 && a.length<8) old[k]=b;
+    }
+    if(!old.unvan && r.unvan)old.unvan=r.unvan;
+    old.warnings=[...new Set([...(old.warnings||[]),...(r.warnings||[])])];
   }
   return [...map.values()].sort((a,b)=>a.id-b.id);
 }
 
 function normalizeRecords(records){
   return mergeRecords(records).map(r=>{
-    const u=titleOf([r.unvan,r.nitelik].join(' ')) || r.unvan;
-    r.unvan=u||'';
+    // Keep an explicitly parsed UNVAN. Do not derive it from NİTELİĞİ;
+    // otherwise "doçentlik" in Doktor Öğretim Üyesi conditions can turn
+    // an unsupported row into a Doçent/Profesör row.
+    let u=/^(Profesör|Doçent)$/i.test(String(r.unvan||'').trim())
+      ? String(r.unvan).trim() : '';
+    r.unvan=u;
     r.birim=cleanText(r.birim); r.bolum=cleanText(r.bolum);
     r.abd=cleanText(r.abd); r.nitelik=cleanText(r.nitelik);
     if(!r.warnings)r.warnings=[];
@@ -264,21 +283,269 @@ function normalizeRecords(records){
 }
 
 
+
+function oneDClusters(values,k){
+  if(!values.length)return [];
+  let xs=[...values].sort((a,b)=>a-b);
+  if(xs.length<=k)return xs;
+  let centers=[];
+  for(let i=0;i<k;i++) centers.push(xs[Math.floor((i+0.5)*xs.length/k)]);
+  for(let it=0;it<12;it++){
+    const groups=Array.from({length:k},()=>[]);
+    for(const x of xs){
+      let j=0,best=Infinity;
+      for(let q=0;q<k;q++){const d=Math.abs(x-centers[q]);if(d<best){best=d;j=q}}
+      groups[j].push(x);
+    }
+    const next=groups.map((g,i)=>g.length?g.reduce((a,b)=>a+b,0)/g.length:centers[i]).sort((a,b)=>a-b);
+    if(next.every((v,i)=>Math.abs(v-centers.slice().sort((a,b)=>a-b)[i])<0.5))return next;
+    centers=next;
+  }
+  return centers.sort((a,b)=>a-b);
+}
+
+/* Table parser for the official SDÜ/Resmî Gazete layout. The important
+   difference from the previous version is that column positions are learned
+   from the actual Prof/Doçent rows on each PDF page; we never use a guessed
+   proportional grid when the PDF already contains selectable text. */
+function parseTextTablePage(items, inheritedCenters=null){
+  // Official SDÜ Resmî Gazete tables have a stable header row. The old parser
+  // tried to learn columns from ALL words on the page, which caused long
+  // "NİTELİĞİ" text to be mistaken for BİRİM/BÖLÜM and also captured dates and
+  // footer numbers such as 51501. We now learn the actual column centers from
+  // the table header and then assign every word by its X coordinate.
+  const cleanItems=(items||[]).filter(it=>cleanText(it.text));
+  if(!cleanItems.length)return [];
+
+  // Build visual lines from the PDF text layer.
+  const lines=clusterLines(cleanItems);
+  const normLine=s=>normalizeForMatch(s);
+
+  // Locate the header containing the table labels. We accept wrapped headers
+  // (e.g. ABD/ASD/PRG) by looking at the whole visual line.
+  let header=null;
+  for(const l of lines){
+    const t=normLine(lineText(l));
+    if(t.includes('ilan') && t.includes('birim') && t.includes('bolum') &&
+       t.includes('abd') && t.includes('unvan') && t.includes('niteligi')){
+      header=l; break;
+    }
+  }
+
+  let centers=null;
+  if(header){
+    const headerWords=header.items.map(it=>({
+      text:cleanText(it.text),
+      x:it.x,
+      cx:it.x+it.w/2,
+      y:it.y
+    }));
+
+    // Header labels can be split into several text items. Only search inside
+    // the actual header line, so body text such as "ilan" can never shift a
+    // column.
+    function findHeaderCenter(keywords){
+      const hit=headerWords.find(w=>keywords.some(k=>normalizeForMatch(w.text).includes(k)));
+      return hit?hit.cx:null;
+    }
+    centers={
+      id:findHeaderCenter(['ilan']),
+      birim:findHeaderCenter(['birim']),
+      bolum:findHeaderCenter(['bolum']),
+      abd:findHeaderCenter(['abd']),
+      unvan:findHeaderCenter(['unvan']),
+      der:findHeaderCenter(['derece','der']),
+      adet:findHeaderCenter(['adet','ad']),
+      nitelik:findHeaderCenter(['niteligi'])
+    };
+    if(Object.values(centers).some(v=>v===null))centers=null;
+  }
+
+  // Continuation pages in the Resmî Gazete often omit the header. Reuse the
+  // exact centers learned from the previous table page instead of guessing.
+  if(!centers && inheritedCenters)centers=inheritedCenters;
+
+  // Some Resmî Gazete continuation pages (including page 3 of the 17.08.2026
+  // issue) repeat the table body without repeating the header. If the previous
+  // page's header could not be recovered for any reason, use the stable
+  // coordinates of the official SDÜ table as a last-resort layout. This is
+  // deliberately only a fallback: a real header or inherited header always
+  // wins.
+  if(!centers){
+    const hasOfficialRow=cleanItems.some(it=>/^4\d{3}$/.test(cleanText(it.text))) &&
+      cleanItems.some(it=>/^(Profesör|Doçent)$/i.test(cleanText(it.text)));
+    if(hasOfficialRow){
+      centers={id:262.5,birim:325.5,bolum:392,abd:463.2,unvan:523.6,der:562.7,adet:594.4,nitelik:704.5};
+    }
+  }
+  if(!centers)return [];
+
+  const keys=['id','birim','bolum','abd','unvan','der','adet','nitelik'];
+  const ordered=keys.map(k=>centers[k]).sort((a,b)=>a-b);
+  // If a wrapped label accidentally produced duplicate/incorrect centers,
+  // require strictly increasing centers in the expected column order.
+  if(keys.some((k,i)=>i&&centers[k]<=centers[keys[i-1]]))return [];
+
+  // Boundaries are midway between actual header centers. Content is often
+  // left-aligned inside the cells, while headers are centered, so using the
+  // centers themselves (or proportional widths) is incorrect.
+  const bounds=[-Infinity];
+  for(let i=0;i<keys.length-1;i++)bounds.push((centers[keys[i]]+centers[keys[i+1]])/2);
+  bounds.push(Infinity);
+
+  function colForX(x){
+    for(let i=0;i<bounds.length-1;i++){
+      if(x>=bounds[i] && x<bounds[i+1])return i;
+    }
+    return 7;
+  }
+
+  // Announcement numbers are ONLY accepted from the first table column and
+  // are restricted to the 4-digit SDÜ teaching-member format (4xxx). This
+  // prevents dates, page numbers and other numeric text from becoming rows.
+  const idCandidates=cleanItems.map(it=>{
+    const id=idFromText(it.text);
+    const cx=it.x+it.w/2;
+    return id!==null && /^4\d{3}$/.test(String(id)) && Math.abs(cx-centers.id)<65
+      ? {id,it,cx} : null;
+  }).filter(Boolean);
+  if(!idCandidates.length)return [];
+
+  // De-duplicate IDs that may be represented by more than one text item.
+  const ids=[];
+  for(const q of idCandidates.sort((a,b)=>a.it.y-b.it.y)){
+    if(!ids.some(x=>x.id===q.id && Math.abs(x.it.y-q.it.y)<4))ids.push(q);
+  }
+
+  const records=[];
+  for(let i=0;i<ids.length;i++){
+    const cur=ids[i];
+    // Cell text is vertically centered, so wrapped text can sit slightly
+    // ABOVE the announcement number of the same row. A simple "between this
+    // ID and the next ID" range therefore steals the first line of the next
+    // row (this was the remaining bug visible in 4360/4361). Assign each word
+    // to the nearest announcement-number Y position instead.
+    const rowItems=cleanItems.filter(it=>{
+      const cy=it.y + it.h/2;
+      let best=ids[0], bestD=Infinity;
+      for(const q of ids){
+        const d=Math.abs(cy-(q.it.y+q.it.h/2));
+        if(d<bestD){bestD=d;best=q;}
+      }
+      return best===cur && bestD<=34;
+    });
+    const cols=Array.from({length:8},()=>[]);
+    for(const it of rowItems){
+      const cx=it.x+it.w/2;
+      const c=colForX(cx);
+      cols[c].push(it.text);
+    }
+
+    // Remove the ID itself from the first column and any accidental header
+    // fragments. Preserve the PDF's original wording in the content cells.
+    const vals=cols.map(a=>cleanText(a.join(' ')));
+    vals[0]=String(cur.id);
+
+    // Determine the title ONLY from the actual UNVAN cell / exact title text.
+    // Never infer Prof/Doçent from NİTELİĞİ: phrases such as "doçentlik"
+    // occur in Doktor Öğretim Üyesi conditions and caused false Doçent rows.
+    let unvan='';
+    const exactTitle=rowItems.find(it=>/^(Profesör|Doçent)$/i.test(cleanText(it.text)));
+    const doctorTitle=rowItems.some(it=>/doktor\s+öğretim\s+üyesi/i.test(cleanText(it.text)));
+    if(exactTitle) unvan=cleanText(exactTitle.text);
+    else if(!doctorTitle) unvan=titleOf(vals[4]);
+
+    // Degree/adet are normally simple numeric cells. Strip any stray text.
+    const firstNum=v=>{
+      const m=String(v||'').match(/\b([1-9]\d?)\b/); return m?m[1]:'';
+    };
+
+    const rec={
+      id:cur.id,
+      birim:cleanText(vals[1]),
+      bolum:cleanText(vals[2]),
+      abd:cleanText(vals[3]),
+      unvan:unvan||'',
+      der:firstNum(vals[5])||'1',
+      adet:firstNum(vals[6])||'1',
+      nitelik:cleanText(vals[7]),
+      warnings:[]
+    };
+
+    // The title/number must never leak into text columns.
+    for(const k of ['birim','bolum','abd','nitelik']){
+      rec[k]=cleanText(rec[k].replace(/\b(?:Profesör|Doçent)\b/ig,'')
+        .replace(/^\d{4,6}\s*/,'').trim());
+    }
+
+    if(rec.unvan!=='Profesör' && rec.unvan!=='Doçent')rec.warnings.push('Unvan OCR');
+    if(rec.birim.length<3)rec.warnings.push('Birim');
+    if(rec.bolum.length<2)rec.warnings.push('Bölüm');
+    if(rec.abd.length<2)rec.warnings.push('ABD/ASD/PRG');
+    if(rec.nitelik.length<20)rec.warnings.push('Niteliği');
+
+    records.push(rec);
+  }
+  return records;
+}
+
 function sourceRowsFromText(pages){
   const records=[];
+  let learnedCenters=null;
   for(const items of pages){
+    // If this page has a header, parseTextTablePage learns it. If it is a
+    // continuation page without a header, the same centers are reused.
+    const table=parseTextTablePage(items,learnedCenters);
+    if(table.length){
+      records.push(...table);
+    }else{
+      // Do not fall back to the old loose parser for official-table pages with
+      // numeric footer/date content: it was the source of false rows such as
+      // 51501. Only use the simple fallback when the page has no recognizable
+      // SDÜ 4xxx announcement table at all.
+      const pageText=cleanText(items.map(x=>x.text).join(' '));
+      const hasAnnouncement=/\b4\d{3}\b/.test(pageText) &&
+        /\b(?:Profesör|Doçent)\b/i.test(pageText);
+      if(!hasAnnouncement){
+        const lines=clusterLines(items);
+        const parsed=parseDelimitedTableFromLines(lines);
+        for(const r of parsed){
+          if(!/^4\d{3}$/.test(String(r.id)))continue;
+          const rec=rowToRecord(r);
+          if(rec.unvan)records.push(rec);
+        }
+      }
+    }
+
+    // Recover the header centers from this page for the next continuation
+    // page. We intentionally do this separately from row parsing so a page
+    // containing only rows can inherit the layout.
     const lines=clusterLines(items);
-    const parsed=parseDelimitedTableFromLines(lines);
-    for(const r of parsed) records.push(rowToRecord(r));
+    const h=lines.find(l=>{
+      const t=normalizeForMatch(lineText(l));
+      return t.includes('ilan')&&t.includes('birim')&&t.includes('bolum')&&
+             t.includes('abd')&&t.includes('unvan')&&t.includes('niteligi');
+    });
+    if(h){
+      const hw=h.items.map(it=>({text:cleanText(it.text),cx:it.x+it.w/2}));
+      const fh=ks=>{const hit=hw.find(w=>ks.some(k=>normalizeForMatch(w.text).includes(k)));return hit?hit.cx:null};
+      const c={id:fh(['ilan']),birim:fh(['birim']),bolum:fh(['bolum']),abd:fh(['abd']),unvan:fh(['unvan']),der:fh(['derece','der']),adet:fh(['adet','ad']),nitelik:fh(['niteligi'])};
+      if(!Object.values(c).some(v=>v===null))learnedCenters=c;
+    }
   }
   return normalizeRecords(records);
 }
+
 
 async function run(file){
   status('PDF okunuyor ve tablolar taranıyor… Telefonda PDF sayısına göre birkaç dakika sürebilir.');
   $('results').classList.add('hidden'); $('checks').classList.add('hidden'); $('make').disabled=true;
   try{
+    if(typeof pdfjsLib==='undefined'){
+      throw new Error('PDF okuyucu yüklenemedi. İnternet bağlantısını kontrol edin.');
+    }
     const buf=await file.arrayBuffer();
+    status('PDF açılıyor…');
     const pdf=await pdfjsLib.getDocument({data:buf}).promise;
 
     // First pass: use the PDF's own text layer. This is faster and generally
@@ -289,9 +556,10 @@ async function run(file){
 
     // Second pass: OCR the pages. OCR is always run when the text layer did
     // not produce usable Prof/Doç records, and also fills missing fields.
-    const usableText=textRecords.filter(x=>x.unvan && (x.birim.length>=4||x.bolum.length>=3)).length;
+    const usableText=textRecords.filter(x=>x.unvan && x.birim.length>=4 && x.bolum.length>=3 && x.abd.length>=3 && x.nitelik.length>=20).length;
+    const textWeak=textRecords.length===0 || usableText < Math.max(1, Math.ceil(textRecords.length*0.65));
     let ocrRecords=[];
-    if(usableText===0 || textRecords.some(x=>x.warnings.length)){
+    if(textWeak){
       const worker=await Tesseract.createWorker('tur');
       for(let i=1;i<=pdf.numPages;i++){
         status(`Sayfa ${i}/${pdf.numPages} taranıyor…`);
@@ -313,15 +581,16 @@ async function run(file){
     // Keep only rows that are confidently identified as Prof/Doç. Rows without
     // a recognized title are shown only if the row otherwise looks like an
     // announcement, and are marked CONTROL rather than silently discarded.
-    detected=detected.filter(r=>{
-      const t=titleOf([r.unvan,r.nitelik].join(' '));
-      return t==='Profesör'||t==='Doçent'||r.warnings.includes('Unvan OCR');
-    });
+    // Only actual Profesör/Doçent rows are included. Do not keep an
+    // "Unvan OCR" row as a fallback: Doktor Öğretim Üyesi rows must be
+    // excluded rather than guessed as Prof/Doçent.
+    detected=detected.filter(r=>r.unvan==='Profesör'||r.unvan==='Doçent');
 
     render(); validate();
   }catch(e){
     console.error(e);
-    status('İşlem sırasında hata oluştu: '+(e?.message||e),'err');
+    $('make').disabled=true;
+    status('PDF okunamadı: '+(e?.message||e),'err');
   }
 }
 
@@ -360,7 +629,7 @@ function validate(){
     blocking?'warn':'ok');
 }
 
-function render(){let tb=$('rows');tb.innerHTML='';detected.forEach((r,i)=>{let tr=document.createElement('tr');tr.innerHTML=`<td><input data-i="${i}" data-k="id" value="${r.id}"></td><td><input data-i="${i}" data-k="birim" value="${esc(r.birim)}"></td><td><input data-i="${i}" data-k="bolum" value="${esc(r.bolum)}"></td><td><input data-i="${i}" data-k="abd" value="${esc(r.abd)}"></td><td><select data-i="${i}" data-k="unvan"><option ${r.unvan==='Profesör'?'selected':''}>Profesör</option><option ${r.unvan==='Doçent'?'selected':''}>Doçent</option></select></td><td><input data-i="${i}" data-k="der" value="${esc(r.der)}"></td><td><input data-i="${i}" data-k="adet" value="${esc(r.adet)}"></td><td><input data-i="${i}" data-k="nitelik" value="${esc(r.nitelik)}"></td><td><span class="pill ${r.warnings.length?'warn':'ok'}">${r.warnings.length?'KONTROL':'OK'}</span></td>`;tb.appendChild(tr)});$('results').classList.remove('hidden');tb.querySelectorAll('input,select').forEach(el=>el.oninput=()=>{detected[+el.dataset.i][el.dataset.k]=el.value;detected[+el.dataset.i].warnings=[];validate()})}
+function render(){let tb=$('rows');tb.innerHTML='';detected.forEach((r,i)=>{let tr=document.createElement('tr');tr.innerHTML=`<td><input data-i="${i}" data-k="id" value="${r.id}"></td><td><input data-i="${i}" data-k="birim" value="${esc(r.birim)}"></td><td><input data-i="${i}" data-k="bolum" value="${esc(r.bolum)}"></td><td><input data-i="${i}" data-k="abd" value="${esc(r.abd)}"></td><td><select data-i="${i}" data-k="unvan"><option value="" ${!r.unvan?'selected':''}>Kontrol</option><option ${r.unvan==='Profesör'?'selected':''}>Profesör</option><option ${r.unvan==='Doçent'?'selected':''}>Doçent</option></select></td><td><input data-i="${i}" data-k="der" value="${esc(r.der)}"></td><td><input data-i="${i}" data-k="adet" value="${esc(r.adet)}"></td><td><input data-i="${i}" data-k="nitelik" value="${esc(r.nitelik)}"></td><td><span class="pill ${r.warnings.length?'warn':'ok'}">${r.warnings.length?'KONTROL':'OK'}</span></td>`;tb.appendChild(tr)});$('results').classList.remove('hidden');tb.querySelectorAll('input,select').forEach(el=>el.oninput=()=>{detected[+el.dataset.i][el.dataset.k]=el.value;detected[+el.dataset.i].warnings=[];validate()})}
 
 function styleCell(cell, opts={}){
   const thin={style:'thin',color:{argb:'FF000000'}};
@@ -514,5 +783,35 @@ async function makeExcel(){
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
+
+const fileInput=$('file');
+const dropZone=$('drop');
+
+fileInput.addEventListener('change', async function(e){
+  const f=e.target.files && e.target.files[0];
+  if(!f) return;
+  if(f.type && f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)){
+    status('Lütfen PDF dosyası seçin.','err');
+    return;
+  }
+  await run(f);
+  // Aynı PDF'yi tekrar seçebilmek için input'u sıfırla.
+  e.target.value='';
+});
+
+dropZone.addEventListener('dragover', function(e){
+  e.preventDefault();
+  dropZone.classList.add('drag');
+});
+dropZone.addEventListener('dragleave', function(){
+  dropZone.classList.remove('drag');
+});
+dropZone.addEventListener('drop', function(e){
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  const f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if(f) run(f);
+});
+
 $('make').onclick=makeExcel;
 </script></body></html>
