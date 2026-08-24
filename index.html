@@ -538,55 +538,67 @@ function sourceRowsFromText(pages){
 
 
 async function run(file){
-  status('PDF okunuyor ve tablolar taranıyor… Telefonda PDF sayısına göre birkaç dakika sürebilir.');
+  status('PDF okunuyor…');
   $('results').classList.add('hidden'); $('checks').classList.add('hidden'); $('make').disabled=true;
+  detected=[];
   try{
-    if(typeof pdfjsLib==='undefined'){
-      throw new Error('PDF okuyucu yüklenemedi. İnternet bağlantısını kontrol edin.');
-    }
+    if(typeof pdfjsLib==='undefined') throw new Error('PDF okuyucu yüklenemedi. İnternet bağlantısını kontrol edin.');
     const buf=await file.arrayBuffer();
     status('PDF açılıyor…');
     const pdf=await pdfjsLib.getDocument({data:buf}).promise;
 
-    // First pass: use the PDF's own text layer. This is faster and generally
-    // more accurate for digitally generated official tables.
-    status(`Metin katmanı kontrol ediliyor… ${pdf.numPages} sayfa`);
+    status(`PDF metin katmanı okunuyor… ${pdf.numPages} sayfa`);
     const textPages=await getPdfTextRows(pdf);
     let textRecords=sourceRowsFromText(textPages);
+    textRecords=normalizeRecords(textRecords).filter(r=>r.unvan==='Profesör'||r.unvan==='Doçent');
 
-    // Second pass: OCR the pages. OCR is always run when the text layer did
-    // not produce usable Prof/Doç records, and also fills missing fields.
-    const usableText=textRecords.filter(x=>x.unvan && x.birim.length>=4 && x.bolum.length>=3 && x.abd.length>=3 && x.nitelik.length>=20).length;
-    const textWeak=textRecords.length===0 || usableText < Math.max(1, Math.ceil(textRecords.length*0.65));
-    let ocrRecords=[];
-    if(textWeak){
-      const worker=await Tesseract.createWorker('tur');
-      for(let i=1;i<=pdf.numPages;i++){
-        status(`Sayfa ${i}/${pdf.numPages} taranıyor…`);
-        const page=await pdf.getPage(i);
-        // 2.4 is a good mobile compromise; higher DPI can make Android browsers
-        // run out of memory on large PDFs.
-        const vp=page.getViewport({scale:2.4});
-        const c=document.createElement('canvas');
-        c.width=Math.ceil(vp.width); c.height=Math.ceil(vp.height);
-        await page.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp}).promise;
-        ocrRecords.push(...await ocrPage(c,worker));
-        c.width=1; c.height=1;
+    // Dijital PDF'lerde OCR'ı bütün belgeye uygulamak yerine yalnızca metin
+    // katmanının kaçırdığı sayfalara uygula. Böylece OCR'nin düzgün metni
+    // bozup yanlış birleştirmesini engelliyoruz.
+    let records=[...textRecords];
+    const foundIds=new Set(records.map(r=>String(r.id)));
+    const needOcrPages=[];
+    for(let pi=0;pi<textPages.length;pi++){
+      const txt=cleanText(textPages[pi].map(x=>x.text).join(' '));
+      const ids=(txt.match(/\b4\d{3}\b/g)||[]).filter(x=>/^4\d{3}$/.test(x));
+      const hasTitle=/\b(?:Profesör|Doçent)\b/i.test(txt);
+      // Sayfada ilan numarası + unvan var ama parser satır çıkaramadıysa OCR.
+      if(ids.length && hasTitle){
+        const missing=ids.some(id=>!foundIds.has(id));
+        if(missing) needOcrPages.push(pi);
       }
-      await worker.terminate();
     }
 
-    detected=normalizeRecords([...textRecords,...ocrRecords]);
+    // Metin katmanı hiç işe yaramadıysa belgeyi OCR ile tara.
+    if(!records.length){
+      for(let pi=0;pi<textPages.length;pi++) needOcrPages.push(pi);
+    }
 
-    // Keep only rows that are confidently identified as Prof/Doç. Rows without
-    // a recognized title are shown only if the row otherwise looks like an
-    // announcement, and are marked CONTROL rather than silently discarded.
-    // Only actual Profesör/Doçent rows are included. Do not keep an
-    // "Unvan OCR" row as a fallback: Doktor Öğretim Üyesi rows must be
-    // excluded rather than guessed as Prof/Doçent.
-    detected=detected.filter(r=>r.unvan==='Profesör'||r.unvan==='Doçent');
+    const uniquePages=[...new Set(needOcrPages)];
+    if(uniquePages.length){
+      status(`Eksik tablolar için OCR çalışıyor… ${uniquePages.length} sayfa`);
+      const worker=await Tesseract.createWorker('tur');
+      try{
+        for(const pi of uniquePages){
+          status(`OCR: sayfa ${pi+1}/${pdf.numPages}`);
+          const page=await pdf.getPage(pi+1);
+          const vp=page.getViewport({scale:2.2});
+          const c=document.createElement('canvas');
+          c.width=Math.ceil(vp.width); c.height=Math.ceil(vp.height);
+          await page.render({canvasContext:c.getContext('2d',{willReadFrequently:true}),viewport:vp}).promise;
+          records.push(...await ocrPage(c,worker));
+          c.width=1;c.height=1;
+        }
+      }finally{ await worker.terminate(); }
+    }
 
-    render(); validate();
+    // Aynı ilan numarasını bir kez tut. Öncelik: metin katmanı > OCR.
+    records=mergeRecords(records).filter(r=>r.unvan==='Profesör'||r.unvan==='Doçent');
+    // Güvenilir sıraya göre göster.
+    detected=records.sort((a,b)=>Number(a.id)-Number(b.id));
+    render();
+    validate();
+    if(!detected.length) status('Profesör/Doçent ilanı bulunamadı. PDF tablo yapısı tanınamadı.','err');
   }catch(e){
     console.error(e);
     $('make').disabled=true;
@@ -594,39 +606,28 @@ async function run(file){
   }
 }
 
-
 function validate(){
   const checks=[];
   if(!detected.length) checks.push(['err','Profesör/Doçent ilanı bulunamadı.']);
-  const ids=detected.map(x=>x.id);
   const seen=new Set(), dup=[];
-  ids.forEach(id=>{if(seen.has(id))dup.push(id);seen.add(id)});
-  if(dup.length)checks.push(['warn','Tekrarlanan ilan numarası: '+[...new Set(dup)].join(', ')]);
-  detected.forEach(x=>{
-    if(x.warnings.length)checks.push(['warn',`${x.id}: ${x.warnings.join(', ')}`]);
-  });
-  let box=$('checks'); box.innerHTML='';
+  detected.forEach(x=>{if(seen.has(x.id))dup.push(x.id);seen.add(x.id)});
+  if(dup.length) checks.push(['warn','Tekrarlanan ilan numarası: '+[...new Set(dup)].join(', ')]);
+  detected.forEach(x=>{if(x.warnings.length)checks.push(['warn',`${x.id}: ${x.warnings.join(', ')}`]);});
+  const box=$('checks'); box.innerHTML='';
   if(checks.length){
-    checks.forEach(([c,t])=>{
-      let d=document.createElement('div');
-      d.className='check '+c; d.textContent='⚠ '+t; box.appendChild(d);
-    });
-  }else{
-    box.innerHTML='<div class="check ok">✓ Tüm alanlar otomatik kontrolden geçti.</div>';
-  }
+    checks.forEach(([c,t])=>{const d=document.createElement('div');d.className='check '+c;d.textContent='⚠ '+t;box.appendChild(d);});
+  }else box.innerHTML='<div class="check ok">✓ Tüm alanlar otomatik kontrolden geçti.</div>';
   box.classList.remove('hidden');
 
-  const blocking=detected.some(x=>x.warnings.length);
-  $('make').disabled=!detected.length||blocking;
-  $('makeHint').textContent=blocking
-    ? 'KONTROL uyarıları düzeltilmeden Excel oluşturulmaz.'
-    : 'Tüm alanlar doğrulandı; Excel oluşturabilirsiniz.';
-
+  // Uyarı olması Excel üretimini kilitlemez. Kullanıcı Excel'i alabilsin;
+  // şüpheli hücreler Excel'de ayrıca KONTROL olarak işaretlenir.
+  $('make').disabled=!detected.length;
+  $('makeHint').textContent=detected.length
+    ? 'Excel oluşturulabilir. KONTROL görünen alanları Excel içinde ayrıca işaretledik.'
+    : 'Önce geçerli bir PDF yükleyin.';
   const prof=detected.filter(x=>x.unvan==='Profesör').length;
   const doc=detected.filter(x=>x.unvan==='Doçent').length;
-  status(`${detected.length} ilan bulundu: ${prof} Profesör, ${doc} Doçent.`
-    +(blocking?' Kontrol isteyen alanlar var.':' Tüm alanlar doğrulandı.'),
-    blocking?'warn':'ok');
+  status(`${detected.length} ilan bulundu: ${prof} Profesör, ${doc} Doçent.`+(checks.length?' Bazı alanlar kontrol gerektiriyor.':' Tüm alanlar doğrulandı.'),checks.length?'warn':'ok');
 }
 
 function render(){let tb=$('rows');tb.innerHTML='';detected.forEach((r,i)=>{let tr=document.createElement('tr');tr.innerHTML=`<td><input data-i="${i}" data-k="id" value="${r.id}"></td><td><input data-i="${i}" data-k="birim" value="${esc(r.birim)}"></td><td><input data-i="${i}" data-k="bolum" value="${esc(r.bolum)}"></td><td><input data-i="${i}" data-k="abd" value="${esc(r.abd)}"></td><td><select data-i="${i}" data-k="unvan"><option value="" ${!r.unvan?'selected':''}>Kontrol</option><option ${r.unvan==='Profesör'?'selected':''}>Profesör</option><option ${r.unvan==='Doçent'?'selected':''}>Doçent</option></select></td><td><input data-i="${i}" data-k="der" value="${esc(r.der)}"></td><td><input data-i="${i}" data-k="adet" value="${esc(r.adet)}"></td><td><input data-i="${i}" data-k="nitelik" value="${esc(r.nitelik)}"></td><td><span class="pill ${r.warnings.length?'warn':'ok'}">${r.warnings.length?'KONTROL':'OK'}</span></td>`;tb.appendChild(tr)});$('results').classList.remove('hidden');tb.querySelectorAll('input,select').forEach(el=>el.oninput=()=>{detected[+el.dataset.i][el.dataset.k]=el.value;detected[+el.dataset.i].warnings=[];validate()})}
@@ -655,7 +656,7 @@ function setRowHeightByText(ws,rowIndex,values,base=34,max=120){
   row.height=Math.min(max,h);
 }
 function setupSheet(ws, cols){
-  ws.sheetView.showGridLines=false;
+  ws.views = [{showGridLines:false}];
   cols.forEach((w,i)=>ws.getColumn(i+1).width=w);
   ws.pageSetup.orientation='landscape';
   ws.pageSetup.paperSize=9; // A4
@@ -683,6 +684,9 @@ function addApplicantSheet(wb,name,data,title){
     const vals=[x.id,x.birim,x.bolum,x.abd,x.unvan,Number(x.der)||1,Number(x.adet)||1,x.nitelik,''];
     vals.forEach((v,c)=>{
       const cell=ws.getCell(r,c+1);cell.value=v;styleCell(cell,{left:c===7});
+      if(x.warnings && x.warnings.length && c<8){
+        cell.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF2CC'}};
+      }
     });
     setRowHeightByText(ws,r,vals,34,120);
   });
@@ -764,24 +768,31 @@ function addJurySheet(wb,name,data,rowsPer,title,note){
   return ws;
 }
 async function makeExcel(){
-  if($('make').disabled)return;
-  const wb=new ExcelJS.Workbook();
-  wb.creator='SDÜ İlan Otomasyonu';
-  wb.created=new Date();
-  const prof=detected.filter(x=>x.unvan==='Profesör');
-  const doc=detected.filter(x=>x.unvan==='Doçent');
-  const generic='SDÜ Öğretim Üyesi İlanları';
-  addApplicantSheet(wb,'PROF. BAŞVURAN LİSTESİ',prof,`${generic} - Profesör Kadrosuna Çevrimiçi/Online Başvuran Adayların Listesi`);
-  addApplicantSheet(wb,'DOÇ. BAŞVURAN LİSTESİ',doc,`${generic} - Doçent Kadrosuna Çevrimiçi/Online Başvuran Adayların Listesi`);
-  addJurySheet(wb,'DOÇENT JÜRİ LİSTESİ',doc,8,`${generic} - Doçent Kadrosuna Çevrimiçi/Online Başvuran Adayların Jüri Listesi`);
-  addJurySheet(wb,'PROF JÜRİ LİSTESİ',prof,10,`${generic} - Profesör Kadrosuna Çevrimiçi/Online Başvuran Adayların Jüri Listesi`,'NOT: JÜRİ TESPİTİ İLE İLGİLİ; 2547 sayılı Yükseköğretim Kanunu ve ilgili mevzuat hükümleri uyarınca jüri üyeleri belirlenir.');
-  addArchiveSheet(wb,detected);
-  const buf=await wb.xlsx.writeBuffer();
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-  a.download='SDU_ilan_otomasyonu_GUNCEL.xlsx';
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+  if(!detected.length){status('Önce PDF yükleyin.','err');return;}
+  try{
+    if(typeof ExcelJS==='undefined') throw new Error('Excel motoru yüklenemedi. İnternet bağlantısını kontrol edin.');
+    status('Excel hazırlanıyor…');
+    const wb=new ExcelJS.Workbook();
+    wb.creator='SDÜ İlan Otomasyonu'; wb.created=new Date();
+    const prof=detected.filter(x=>x.unvan==='Profesör');
+    const doc=detected.filter(x=>x.unvan==='Doçent');
+    const generic='SDÜ Öğretim Üyesi İlanları';
+    addApplicantSheet(wb,'PROF. BAŞVURAN LİSTESİ',prof,`${generic} - Profesör Kadrosuna Çevrimiçi/Online Başvuran Adayların Listesi`);
+    addApplicantSheet(wb,'DOÇ. BAŞVURAN LİSTESİ',doc,`${generic} - Doçent Kadrosuna Çevrimiçi/Online Başvuran Adayların Listesi`);
+    addJurySheet(wb,'DOÇENT JÜRİ LİSTESİ',doc,8,`${generic} - Doçent Kadrosuna Çevrimiçi/Online Başvuran Adayların Jüri Listesi`);
+    addJurySheet(wb,'PROF JÜRİ LİSTESİ',prof,10,`${generic} - Profesör Kadrosuna Çevrimiçi/Online Başvuran Adayların Jüri Listesi`,'NOT: JÜRİ TESPİTİ İLE İLGİLİ; 2547 sayılı Yükseköğretim Kanunu ve ilgili mevzuat hükümleri uyarınca jüri üyeleri belirlenir.');
+    addArchiveSheet(wb,detected);
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='SDU_ilan_otomasyonu_GUNCEL.xlsx';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    status('Excel başarıyla oluşturuldu.','ok');
+  }catch(e){
+    console.error(e);
+    status('Excel oluşturulamadı: '+(e?.message||e),'err');
+  }
 }
 
 const fileInput=$('file');
